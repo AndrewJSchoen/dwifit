@@ -20,7 +20,7 @@ doc = """
 Orientation Check, Version {0}.
 
 Usage:
-    orientationcheck.py [options] --image=<FILE> --bval=<FILE> --bvec=<FILE> --outprefix=<FILE>
+    orientationcheck.py [options] --image=<FILE> --bval=<FILE> --bvec=<FILE> --outprefix=<FILE> [--slice <slice>]
 
 Options:
     -h --help          Show this screen.
@@ -29,6 +29,7 @@ Options:
     --bval=<FILE>      BVAL File (path).
     --bvec=<FILE>      BVEC File (path).
     --out=<FILE>       Output File (path).
+    --slice <slice>    Specify a slice [default: None]
 """.format(Version)
 
 #============================================================================
