@@ -20,7 +20,7 @@ doc = """
 Model Fitting, Version {0}.
 
 Usage:
-    orientationcheck.py [options] --image=<FILE> --bval=<FILE> --bvec=<FILE> --outprefix=<FILE> [(--axis s | --axis c | --axis a) --slice <slice>]
+    orientationcheck.py [options] --image=<FILE> --bval=<FILE> --bvec=<FILE> --outprefix=<FILE> [(--axis s | --axis c | --axis a) --slice <slice>] --fit_type
 
 Options:
     -h --help          Show this screen.
@@ -30,6 +30,7 @@ Options:
     --bvec=<FILE>      BVEC File (path).
     --out=<FILE>       Output File (path).
     --slice <slice>    Specify a slice [default: None]
+    --fit_type <Type>  Specify a type (LS, NLLS, RT)[default: WLS]
 """.format(Version)
 
 #============================================================================
