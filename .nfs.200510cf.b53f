@@ -20,7 +20,7 @@ doc = """
 Model Fitting, Version {0}.
 
 Usage:
-    orientationcheck.py [options] --image=<FILE> --bval=<FILE> --bvec=<FILE> --outprefix=<FILE> [(--axis sagittal | --axis coronal | --axis axial) --slice <slice>] --fit_type
+    orientationcheck.py [options] --image=<FILE> --bval=<FILE> --bvec=<FILE> --outprefix=<FILE> [(--axis s | --axis c | --axis a) --slice <slice>] --fit_type
 
 Options:
     -h --help          Show this screen.
@@ -68,7 +68,7 @@ def fit(image, gtab, fit_type="WLS"):
 def run(rawargs):
     #This gets us our arguments. May need to be tweaked for the new ones we are adding.
     arguments = docopt(doc, argv=rawargs, version='Orientation Check v{0}'.format(Version))
-    inputs = [{"Value":"image file", "Flag": "--image"}, {"Value":"bvec file", "Flag": "--bvec"}, {"Value":"bvec file", "Flag": "--bvec"}, {"Value":"slice", "Flag": "--slice"}, {"Value":"fit type", "Flag": "--fit_type"}]
+    inputs = [{"Value":"image file", "Flag": "--image"}, {"Value":"bvec file", "Flag": "--bvec"}, {"Value":"bvec file", "Flag": "--bvec"}]
     for inputinfo in inputs:
         if not exists(arguments[inputinfo["Flag"]]):
             print("The {0} specified does not exist!".format(inputinfo["Value"]))
@@ -117,9 +117,9 @@ def run(rawargs):
 
     #Slice the whole dataset by the scope
     if arguments["--slice"] == None:
-        result = fit(image, gtab, fit_type=arguments["--fit_type"])
+        result = fit(image, gtab, fit_type=arguments["--fit"])
     else:
-        result = fit(image[imagedict[arguments["--axis"]["scope"]]], gtab, fit_type=arguments["--fit_type"])
+        result = fit(image[imagedict[arguments["--axis"]["scope"]]], gtab, fit_type=arguments["--fit"])
 
     #Saving data will be done here. The rest of the stuff below is unnecessary.
 
