@@ -66,10 +66,17 @@ def fit(image, gtab, fit_type="WLS"):
     fitted = dti_model.fit(image)
     return fitted
 
+def pad_val(val, pad_length=3):
+    if type(val) == str:
+        return val.zfill(pad_length)
+    elif type(val) == int:
+        replace_string = "{0:0"+str(pad_length)+"d}"
+        return replace_string.format(val)
+
 def run(rawargs):
     #retrieves arguments
     arguments = docopt(doc, argv=rawargs, version='Orientation Check v{0}'.format(Version))
-    print(arguments)
+    #print(arguments)
     inputs = [{"Value":"image file", "Flag": "--image"}, {"Value":"bvec file", "Flag": "--bvec"}, {"Value":"bvec file", "Flag": "--bvec"}]
     if arguments["--image_mask"] != None and arguments["--image_mask"] != 'None':
         inputs.append({"Value":"image mask file", "Flag": "--image_mask"})
@@ -91,9 +98,10 @@ def run(rawargs):
         #Mask the image with the mask provided
         image_mask = nib.load(arguments["--image_mask"])
         image_mask_data = image_mask.get_data()
+        #THE FOLLOWING DOES NOT WORK: image_data is 4D, and image_mask is likely 3D. Will need to mask differently
         image_masked = image_mask * image_data
     else:
-        image_masked, mask = median_otsu(image_data, 3, 1, autocrop=True, dilate=2)
+        image_masked, image_mask = median_otsu(image_data, 3, 1, autocrop=False, dilate=2)
 
     print("Checking the image dimensions")
     Xsize, Ysize, Zsize, directions = image.shape
@@ -121,9 +129,34 @@ def run(rawargs):
         else:
             print("Slice does not exist on given axis.")
 
-    print(result.lower_triangular())
+    #print(result.lower_triangular())
+    if arguments["--slice"] == None or arguments["--slice"] == 'None':
+        spd_file_path = arguments["--outprefix"]+'_spd.nii.gz'
+        spd_data = result.lower_triangular()
+        estimate_file_path = arguments["--outprefix"]+'_ecc_estimated.nii.gz'
+        #THE FOLLOWING DOES NOT WORK: image_mask is 3D, and result.predict(gtab) produces a 4D dataset. Will need to mask differently
+        estimate_data = result.predict(gtab) * image_mask
+        error_file_path = arguments["--outprefix"]+'_ecc_error.nii.gz'
+        error_data = numpy.absolute(image_masked - estimate_data)
+    else:
+        spd_file_path = arguments["--outprefix"]+arguments["--axis"]+pad_val(arguments["--slice"])+'_spd.nii.gz'
+        spd_data = result.lower_triangular()
+        estimate_file_path = arguments["--outprefix"]+arguments["--axis"]+pad_val(arguments["--slice"])+'_ecc_estimated.nii.gz'
+        #THE FOLLOWING DOES NOT WORK: image_mask is 3D, and result.predict(gtab) produces a 4D dataset. Will need to mask differently
+        estimate_data = result.predict(gtab) * image_mask
+        error_file_path = arguments["--outprefix"]+arguments["--axis"]+pad_val(arguments["--slice"])+'_ecc_error.nii.gz'
+        error_data = numpy.absolute(image_masked[imagedict[arguments["--axis"]]["scope"]] - estimate_data)
 
-    nib.save(nib.Nifti1Image(result.lower_triangular(), image.get_affine()), 'tensor.nii.gz')
+    print("Saving SPD image to "+spd_file_path)
+    nib.save(nib.Nifti1Image(spd_data, image.get_affine()), spd_file_path)
+    print("Saving estimated image to "+estimate_file_path)
+    nib.save(nib.Nifti1Image(estimate_data, image.get_affine()), estimate_file_path)
+    print("Saving error image to "+error_file_path)
+    nib.save(nib.Nifti1Image(error_data, image.get_affine()), error_file_path)
+
+    #nib.save(nib.Nifti1Image(result.lower_triangular(), image.get_affine()), arguments["--outprefix"]+'_spd.nii.gz')
+
+
 
     sys.exit(0)
 
