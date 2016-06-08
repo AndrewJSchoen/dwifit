@@ -121,7 +121,9 @@ def run(rawargs):
         else:
             print("Slice does not exist on given axis.")
 
-    print(result)
+    print(result.lower_triangular())
+
+    nib.save(nib.Nifti1Image(result.lower_triangular(), image.get_affine()), 'tensor.nii.gz')
 
     sys.exit(0)
 
