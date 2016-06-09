@@ -98,8 +98,9 @@ def run(rawargs):
     bvals, bvecs = read_bvals_bvecs(arguments['--bval'], arguments['--bvec'])
     print(bvals)
     print(bvals.min())
+    gen = (i for i, x in enumerate(bvals) if x == bvals.min())
+    for i in gen: print i
 
-    indices = [0, 10, 20, 30]
     b0_only = image_data[:,:,:,indices]
 
     sys.exit()
