@@ -104,7 +104,7 @@ def run(rawargs):
         image_mask = nib.load(arguments["--image_mask"])
         image_mask_data = image_mask.get_data()
         #THE FOLLOWING DOES NOT WORK: image_data is 4D, and image_mask is likely 3D. Will need to mask differently
-        image_masked = image_mask * image_data
+        image_masked = image_mask_data * image_data
     else:
         image_masked, image_mask = median_otsu(image_data, 3, 1, autocrop=False, dilate=2)
 
@@ -114,45 +114,70 @@ def run(rawargs):
     #If a slice is specified, double-check that the slice is a valid index
     #If it is valid, extract that slice from the image
 
-    image_average_signal = numpy.mean(image_masked, axis=3)
 
     if arguments["--slice"] == None or arguments["--slice"] == 'None':
+        #Fit the data
         result = fit(image_data, image_mask, gtab, fit_type=arguments["--fit_type"])
+
+        #Generate average signal, to be used in reverse calculation
+        image_average_signal = numpy.mean(image_masked, axis=3)
+
+        #Define the paths to the output files
+        spd_file_path = arguments["--outprefix"]+'_spd.nii.gz'
+        estimate_file_path = arguments["--outprefix"]+'_ecc_estimated.nii.gz'
+        error_file_path = arguments["--outprefix"]+'_ecc_error.nii.gz'
+
+        #Generate the SPD data (lower triangular of the symmetric matrix)
+        spd_data = result.lower_triangular()
+        #Predict the original data based on the resulting tensor data
+        estimate_data = result.predict(gtab, S0=image_average_signal)
+        #Generate the difference between original and the predicted original
+        error_data = numpy.absolute(image_masked - estimate_data)
+
+
     else:
+        #Force the argument to be in integer form
         arguments["--slice"] = int(arguments["--slice"])
+
+        #Do some checking on the boundaries. Exit if not in bounds.
         if arguments["--axis"] == "sagittal":
             axisbound = Xsize
         elif arguments["--axis"] == "coronal":
             axisbound = Ysize
         else:
             axisbound = Zsize
-        if 0 <= arguments["--slice"] <= axisbound:
-            print("Defining the image scopes.")
-            imagedict = {"axial": {"scope": (slice(0,Xsize), slice(0,Ysize), slice(arguments["--slice"],arguments["--slice"]+1))},
-                         "coronal": {"scope": (slice(0,Xsize), slice(arguments["--slice"],arguments["--slice"]+1), slice(0, Zsize))},
-                         "sagittal": {"scope": (slice(arguments["--slice"],arguments["--slice"]+1), slice(0,Ysize), slice(0, Zsize))}}
-            print(imagedict)
-            result = fit(image_data[imagedict[arguments["--axis"]]["scope"]], image_mask, gtab, fit_type=arguments["--fit_type"])
+        if 0 > arguments["--slice"] or arguments["--slice"] > axisbound:
+            raise IOError("Slice does not exist on given axis.")
+            sys.exit(1)
+
+        #Slice all the datasets required
+        if arguments["--axis"] == "axial":
+            image_data_slice = image_data[:,:,arguments["--slice"]]
+            image_mask_slice = image_mask[:,:,arguments["--slice"]]
+        elif arguments["--axis"] == "sagittal":
+            image_data_slice = image_data[:,arguments["--slice"],:]
+            image_mask_slice = image_mask[:,arguments["--slice"],:]
         else:
-            print("Slice does not exist on given axis.")
+            image_data_slice = image_data[arguments["--slice"],:,:]
+            image_mask_slice = image_mask[arguments["--slice"],:,:]
+
+        #Fit the data
+        result = fit(image_data_slice, image_mask_slice, gtab, fit_type=arguments["--fit_type"])
+
+        #Generate average signal, to be used in reverse calculation
+        image_average_signal_slice = numpy.mean(image_data_slice*image_mask_slice, axis=3)
 
     #print(result.lower_triangular())
-    if arguments["--slice"] == None or arguments["--slice"] == 'None':
-        spd_file_path = arguments["--outprefix"]+'_spd.nii.gz'
-        spd_data = result.lower_triangular()
-        estimate_file_path = arguments["--outprefix"]+'_ecc_estimated.nii.gz'
-        #THE FOLLOWING DOES NOT WORK: image_mask is 3D, and result.predict(gtab) produces a 4D dataset. Will need to mask differently
-        estimate_data = result.predict(gtab, S0=image_average_signal) #* image_mask
-        error_file_path = arguments["--outprefix"]+'_ecc_error.nii.gz'
-        error_data = numpy.absolute(image_masked - estimate_data)
-    else:
-        spd_file_path = arguments["--outprefix"]+arguments["--axis"]+pad_val(arguments["--slice"])+'_spd.nii.gz'
-        spd_data = result.lower_triangular()
-        estimate_file_path = arguments["--outprefix"]+arguments["--axis"]+pad_val(arguments["--slice"])+'_ecc_estimated.nii.gz'
-        #THE FOLLOWING DOES NOT WORK: image_mask is 3D, and result.predict(gtab) produces a 4D dataset. Will need to mask differently
-        estimate_data = result.predict(gtab, S0=image_average_signal)# * image_mask
-        error_file_path = arguments["--outprefix"]+arguments["--axis"]+pad_val(arguments["--slice"])+'_ecc_error.nii.gz'
-        error_data = numpy.absolute(image_masked[imagedict[arguments["--axis"]]["scope"]] - estimate_data)
+    # if arguments["--slice"] == None or arguments["--slice"] == 'None':
+    #
+    # else:
+    #     spd_file_path = arguments["--outprefix"]+arguments["--axis"]+pad_val(arguments["--slice"])+'_spd.nii.gz'
+    #     spd_data = result.lower_triangular()
+    #     estimate_file_path = arguments["--outprefix"]+arguments["--axis"]+pad_val(arguments["--slice"])+'_ecc_estimated.nii.gz'
+    #     #THE FOLLOWING DOES NOT WORK: image_mask is 3D, and result.predict(gtab) produces a 4D dataset. Will need to mask differently
+    #     estimate_data = result.predict(gtab, S0=image_average_signal_slice)# * image_mask
+    #     error_file_path = arguments["--outprefix"]+arguments["--axis"]+pad_val(arguments["--slice"])+'_ecc_error.nii.gz'
+    #     error_data = numpy.absolute(image_masked[imagedict[arguments["--axis"]]["scope"]] - estimate_data)
 
     print("Saving SPD image to "+spd_file_path)
     nib.save(nib.Nifti1Image(spd_data, image.get_affine()), spd_file_path)
