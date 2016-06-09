@@ -57,13 +57,15 @@ def exists(path):
         print("Error: Input file '{0}' not found!".format(path))
         return(0)
 
-def fit(image, gtab, fit_type="WLS"):
+def fit(image, mask, gtab, fit_type="WLS"):
     print("Generating the tensor model.")
     dti_model = dti.TensorModel(gtab, fit_method=fit_type)
 
     #the fit method will take in the data, regardless of the shape
     print("Fitting data.")
-    fitted = dti_model.fit(image)
+    fitted = dti_model.fit(image, mask=mask)
+    # print("Generating prediction.")
+    # prediction = dti_model.predict()
     return fitted
 
 def pad_val(val, pad_length=3):
@@ -88,6 +90,9 @@ def run(rawargs):
     #Load image
     image = nib.load(arguments["--image"])
     image_data = image.get_data()
+
+    # Perhaps center the data origin to 0, 0, 0
+
     #Generates gradient table
     print("Generating gradient table.")
     bvals, bvecs = read_bvals_bvecs(arguments['--bval'], arguments['--bvec'])
@@ -109,8 +114,10 @@ def run(rawargs):
     #If a slice is specified, double-check that the slice is a valid index
     #If it is valid, extract that slice from the image
 
+    image_average_signal = numpy.mean(image_masked, axis=3)
+
     if arguments["--slice"] == None or arguments["--slice"] == 'None':
-        result = fit(image_masked, gtab, fit_type=arguments["--fit_type"])
+        result = fit(image_data, image_mask, gtab, fit_type=arguments["--fit_type"])
     else:
         arguments["--slice"] = int(arguments["--slice"])
         if arguments["--axis"] == "sagittal":
@@ -125,7 +132,7 @@ def run(rawargs):
                          "coronal": {"scope": (slice(0,Xsize), slice(arguments["--slice"],arguments["--slice"]+1), slice(0, Zsize))},
                          "sagittal": {"scope": (slice(arguments["--slice"],arguments["--slice"]+1), slice(0,Ysize), slice(0, Zsize))}}
             print(imagedict)
-            result = fit(image_masked[imagedict[arguments["--axis"]]["scope"]], gtab, fit_type=arguments["--fit_type"])
+            result = fit(image_data[imagedict[arguments["--axis"]]["scope"]], image_mask, gtab, fit_type=arguments["--fit_type"])
         else:
             print("Slice does not exist on given axis.")
 
@@ -135,7 +142,7 @@ def run(rawargs):
         spd_data = result.lower_triangular()
         estimate_file_path = arguments["--outprefix"]+'_ecc_estimated.nii.gz'
         #THE FOLLOWING DOES NOT WORK: image_mask is 3D, and result.predict(gtab) produces a 4D dataset. Will need to mask differently
-        estimate_data = result.predict(gtab) * image_mask
+        estimate_data = result.predict(gtab, S0=image_average_signal) #* image_mask
         error_file_path = arguments["--outprefix"]+'_ecc_error.nii.gz'
         error_data = numpy.absolute(image_masked - estimate_data)
     else:
@@ -143,7 +150,7 @@ def run(rawargs):
         spd_data = result.lower_triangular()
         estimate_file_path = arguments["--outprefix"]+arguments["--axis"]+pad_val(arguments["--slice"])+'_ecc_estimated.nii.gz'
         #THE FOLLOWING DOES NOT WORK: image_mask is 3D, and result.predict(gtab) produces a 4D dataset. Will need to mask differently
-        estimate_data = result.predict(gtab) * image_mask
+        estimate_data = result.predict(gtab, S0=image_average_signal)# * image_mask
         error_file_path = arguments["--outprefix"]+arguments["--axis"]+pad_val(arguments["--slice"])+'_ecc_error.nii.gz'
         error_data = numpy.absolute(image_masked[imagedict[arguments["--axis"]]["scope"]] - estimate_data)
 
