@@ -96,6 +96,13 @@ def run(rawargs):
     #Generates gradient table
     print("Generating gradient table.")
     bvals, bvecs = read_bvals_bvecs(arguments['--bval'], arguments['--bvec'])
+    print(bvals)
+    print(bvals.min())
+
+    indices = [0, 10, 20, 30]
+    b0_only = image_data[:,:,:,indices]
+
+    sys.exit()
     gtab = gradient_table(*read_bvals_bvecs(arguments['--bval'], arguments['--bvec']))
 
     print("Masking the brain.")
