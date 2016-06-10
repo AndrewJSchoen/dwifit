@@ -1,6 +1,7 @@
 #!../Python/bin/python
 import matplotlib.pyplot as plt
-import os, sys, pandas, math, numpy
+import os, sys, pandas, math
+import numpy as np
 import nibabel as nib
 import dipy.reconst.dti as dti
 from dipy.viz import fvtk
@@ -11,8 +12,6 @@ from dipy.io import read_bvals_bvecs
 from docopt import docopt
 #import dipy.data as dpd
 reload(dti)
-
-import matplotlib.pyplot as plt
 
 Version = "0.1"
 
@@ -98,10 +97,13 @@ def run(rawargs):
     bvals, bvecs = read_bvals_bvecs(arguments['--bval'], arguments['--bvec'])
     print(bvals)
     print(bvals.min())
-    gen = (i for i, x in enumerate(bvals) if x == bvals.min())
-    for i in gen: print i
+    values = np.array(bvals)
+    searchval = bvals.min()
+    ii = np.where(values == searchval)[0]
+    print(ii)
 
-    b0_only = image_data[:,:,:,indices]
+    b0_only = image_data[:,:,:,ii]
+    print(b0_only)
 
     sys.exit()
     gtab = gradient_table(*read_bvals_bvecs(arguments['--bval'], arguments['--bvec']))
