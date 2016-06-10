@@ -90,20 +90,17 @@ def run(rawargs):
     image = nib.load(arguments["--image"])
     image_data = image.get_data()
 
-    #Generates gradient table
+    #Generate gradient table
     print("Generating gradient table.")
     bvals, bvecs = read_bvals_bvecs(arguments['--bval'], arguments['--bvec'])
-    values = np.array(bvals)
-    searchval = bvals.min()
-    ii = np.where(values == searchval)[0]
-
-    b0_only = image_data[:,:,:,ii]
-
-    print(b0_only.sum(3))
-
     gtab = gradient_table(bvals, bvecs)
 
-    sys.exit()
+
+    #Generate an image that is an average of all b0 volume (useful for reverse prediction)
+    print("Generating signal intensity map.")
+    values = np.array(bvals)
+    ii = np.where(values == bvals.min())[0]
+    image_b0_average = np.mean(image_data[:,:,:,ii], axis=3)
 
     print("Masking the brain.")
     if arguments["--image_mask"] != None and arguments["--image_mask"] != 'None':
@@ -114,6 +111,7 @@ def run(rawargs):
         image_masked = image_mask_data * image_data
     else:
         image_masked, image_mask = median_otsu(image_data, 3, 1, autocrop=False, dilate=2)
+        image_b0_average_masked = image_mask * image_b0_average
 
     print("Checking the image dimensions")
     Xsize, Ysize, Zsize, directions = image.shape
@@ -137,7 +135,7 @@ def run(rawargs):
         #Generate the SPD data (lower triangular of the symmetric matrix)
         spd_data = result.lower_triangular()
         #Predict the original data based on the resulting tensor data
-        estimate_data = result.predict(gtab, S0=image_average_signal)
+        estimate_data = result.predict(gtab, S0=image_b0_average_masked)
         #Generate the difference between original and the predicted original
         error_data = np.absolute(image_masked - estimate_data)
 
