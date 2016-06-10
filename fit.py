@@ -90,23 +90,20 @@ def run(rawargs):
     image = nib.load(arguments["--image"])
     image_data = image.get_data()
 
-    # Perhaps center the data origin to 0, 0, 0
-
     #Generates gradient table
     print("Generating gradient table.")
     bvals, bvecs = read_bvals_bvecs(arguments['--bval'], arguments['--bvec'])
-    print(bvals)
-    print(bvals.min())
     values = np.array(bvals)
     searchval = bvals.min()
     ii = np.where(values == searchval)[0]
-    print(ii)
 
     b0_only = image_data[:,:,:,ii]
-    print(b0_only)
+
+    print(b0_only.sum(3))
+
+    gtab = gradient_table(bvals, bvecs)
 
     sys.exit()
-    gtab = gradient_table(*read_bvals_bvecs(arguments['--bval'], arguments['--bvec']))
 
     print("Masking the brain.")
     if arguments["--image_mask"] != None and arguments["--image_mask"] != 'None':
@@ -130,7 +127,7 @@ def run(rawargs):
         result = fit(image_data, image_mask, gtab, fit_type=arguments["--fit_type"])
 
         #Generate average signal, to be used in reverse calculation
-        image_average_signal = numpy.mean(image_masked, axis=3)
+        image_average_signal = np.mean(image_masked, axis=3)
 
         #Define the paths to the output files
         spd_file_path = arguments["--outprefix"]+'_spd.nii.gz'
@@ -142,7 +139,7 @@ def run(rawargs):
         #Predict the original data based on the resulting tensor data
         estimate_data = result.predict(gtab, S0=image_average_signal)
         #Generate the difference between original and the predicted original
-        error_data = numpy.absolute(image_masked - estimate_data)
+        error_data = np.absolute(image_masked - estimate_data)
 
 
     else:
@@ -175,7 +172,7 @@ def run(rawargs):
         result = fit(image_data_slice, image_mask_slice, gtab, fit_type=arguments["--fit_type"])
 
         #Generate average signal, to be used in reverse calculation
-        image_average_signal_slice = numpy.mean(image_data_slice*image_mask_slice, axis=3)
+        image_average_signal_slice = np.mean(image_data_slice*image_mask_slice, axis=3)
 
     #print(result.lower_triangular())
     # if arguments["--slice"] == None or arguments["--slice"] == 'None':
