@@ -4,6 +4,7 @@ import os, sys, pandas, math
 import numpy as np
 import nibabel as nib
 import dipy.reconst.dti as dti
+import dipy.reconst.dki as dki
 from dipy.viz import fvtk
 from dipy.segment.mask import median_otsu
 from dipy.align.reslice import reslice
@@ -19,8 +20,8 @@ doc = """
 Orientation Check, Version {0}.
 
 Usage:
-    fit.py [options] --image=<FILE> --bval=<FILE> --bvec=<FILE> --outprefix=<FILE>
-    fit.py [options] --image=<FILE> --bval=<FILE> --bvec=<FILE> --outprefix=<FILE> --axis=<type> --slice=<slice>
+    fit.py [options] --image=<FILE> --bval=<FILE> --bvec=<FILE> --outprefix=<FILE> --model=<type> --fit_type=<type>
+    fit.py [options] --image=<FILE> --bval=<FILE> --bvec=<FILE> --outprefix=<FILE> --model=<type> --fit_type=<type> --axis=<type> --slice=<slice>
 
 Options:
     -h --help            Show this screen.
@@ -30,9 +31,10 @@ Options:
     --bval=<FILE>        BVAL File (path).
     --bvec=<FILE>        BVEC File (path).
     --outprefix=<FILE>   Output File (path).
+    --model=<type>       Specify a model (DTI, DKI) [default: DTI]
+    --fit_type=<type>    Specify a type (WLS, LS, NLLS, RT) [default: WLS]
     --slice=<slice>      Specify a slice [default: None]
     --axis=<type>        Specify an axis (coronal, sagittal, axial) [default: coronal]
-    --fit_type=<type>    Specify a type (WLS, LS, NLLS, RT) [default: WLS]
 """.format(Version)
 
 #============================================================================
@@ -56,7 +58,7 @@ def exists(path):
         print("Error: Input file '{0}' not found!".format(path))
         return(0)
 
-def fit(image, mask, gtab, fit_type="WLS"):
+def dti_fit(image, mask, gtab, fit_type="WLS"):
     print("Generating the tensor model.")
     dti_model = dti.TensorModel(gtab, fit_method=fit_type)
 
@@ -66,6 +68,15 @@ def fit(image, mask, gtab, fit_type="WLS"):
     # print("Generating prediction.")
     # prediction = dti_model.predict()
     return fitted
+
+def dki_fit(image, mask, gtab):
+    sigma = estimate_sigma(image, N=4))
+    den = nlmeans(image, sigma=sigma, mask=mask)
+
+    print("Generating Kurtosis Model.")
+    dkimodel = dki.DiffusionKurtosisModel(gtab)
+    dkifit = dkimodel.fit(den)
+
 
 def pad_val(val, pad_length=3):
     if type(val) == str:
