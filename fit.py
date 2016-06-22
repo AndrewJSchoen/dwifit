@@ -58,7 +58,7 @@ def exists(path):
         print("Error: Input file '{0}' not found!".format(path))
         return(0)
 
-def dti_fit(image, mask, gtab, fit_type="WLS"):
+def dti_fit(image, mask, gtab, fit_type=arguments["--fit_type"]):
     print("Generating the tensor model.")
     dti_model = dti.TensorModel(gtab, fit_method=fit_type)
 
@@ -212,3 +212,151 @@ if __name__ == '__main__':
     args = sys.argv
     del args[0]
     run(args)
+
+
+    ############################################################################
+
+
+class wholeImageFit:
+
+    def __init__(self, rawDWI, bval, bvec, outprefix, image_mask, fit_method):
+        self.dwi_path = rawDWI
+        self.bval_path = bval
+        self.bvec_path = bvec
+        self.output_root_path = outprefix
+        self.image_mask_path = image_mask_path
+
+
+    def createMask(self):
+        if os.path.exists(self.dwi_path):
+            img = nib.load(self.dwi_path)
+            data = img.get_data()
+            masked_data, mask = median_otsu(data, 2,2)
+
+            #Save those files
+            masked_img = nib.Nifti1Image(masked_data.astype(np.float32), img.get_affine())
+            mask_img = nib.Nifit1Image(mask.astype(np.float32), img.get_affine())
+
+            nib.save(masked_img, self.masked_dwi)
+            nib.save(mask_img, self.mask)
+
+    def TensorFit(self):
+        if os.path.exists(self.masked_dwi):
+            img = nib.load(self.masked_dwi)
+            data = img.get_data()
+
+            bvals, bvecs = read_bvals_bvecs(self.bval_path, self.bvec_path)
+            gtab = gradient_table(bvals, bvecs)
+
+            values = np.array(bvals)
+            ii = np.where(values == bvals.min())[0]
+            b0_average = np.mean(data[:,:,:,ii], axis=3)
+
+            tenmodel = dti.TensorModel(gtab, fit_method="fit_method")
+            tenfit = tenmodel.fit(data)
+
+            spd_data = tenfit.lower_triangular()
+            nib.save(nib.Nifti1Image(spd_data, image.get_affine()), spd_file_path)
+
+            estimate_data = tenmodel.predict(gtab, S0=b0_average)
+            residuals = np.absolute(data - estimate_data)
+
+            fit_img = nib.Nifti1Image(tenfit.astype(np.float32), img.get_affine())
+            res_img = nib.Nifti1Image(residuals.astype(np.float32), img.get_affine())
+            nib.save(fit_img, self.tenfit_img)
+            nib.save(res_img, self.dti_res_img)
+
+    def KurtosisModelFit(self):
+        if os.path.exists(self.masked_dwi):
+            img = nib.load(self.masked_dwi)
+            data = img.get_data()
+
+            bvals, bvecs = read_bvals_bvecs(self.bval_path, self.bvec_path)
+            gtab = gradient_table(bvals, bvecs)
+
+            values = np.array(bvals)
+            ii = np.where(values == bvals.min())[0]
+            b0_average = np.mean(data[:,:,:,ii], axis=3)
+
+            dkimodel = dki.DiffusionKurtosisModel(gtab)
+            dkifit = dkimodel.fit(data)
+
+            estimate_data = dkimodel.predict(gtab, S0=b0_average)
+            residuals = np.absolute(data - estimate_data)
+
+            Kfit_img = nib.Nifti1Image(dkifit.astype(np.float32), img.get_affine())
+            res_img = nib.Nifti1Image(residuals.astype(np.float32), img.get_affine())
+            nib.save(Kfit_img, self.kurtosis_img)
+            nib.save(res_img, self.dki_res_img)
+
+class sliceImageFit:
+
+    def __init__(self, slice, bval, bvec, outprefix, image_mask, fit_method):
+        self.slice_path = slice_image
+        self.bval_path = bval
+        self.bvec_path = bvec
+        self.output_root_path = outprefix
+        self.image_mask_path = image_mask
+
+    def createMask(self):
+        if os.path.exists(self.slice_path):
+            img = nib.load(self.slice_path)
+            data = img.get_data()
+            masked_data, data = median_otsu(data, 2,2)
+
+            masked_img = nib.Nifti1Image(masked_img.astype(np.float32), img.get_affine())
+            mask_img = nib.Nifti1Image(mask_img.astype(np.float32), img.get_affine())
+
+            nib.save(masked_img, self.masked_dwi)
+            nib.save(mask_img, self.mask_dwi)
+
+    def TensorFit(self):
+        if os.path.exists(self.masked_dwi):
+            img = nib.load(self.masked_dwi)
+            data = img.get_data()
+
+            bvals, bvecs = read_bvals_bvecs(self.bval_path, self.bvec_path)
+            gtab = gradient_table(bvals, bvecs)
+
+            values = np.array(bvals)
+            ii = np.where(values == bvals.min())[0]
+            b0_average = np.mean(data[:,:,:,ii], axis=3)
+
+            tenmodel = dti.TensorModel(gtab, fit_method="fit_method")
+            tenfit = tenmodel.fit(data)
+
+            estimate_data = tenmodel.predict(gtab, S0=b0_average)
+            residuals = np.absolute(data - estimate_data)
+
+            fit_img = nib.Nifti1Image(tenfit.astype(np.float32), img.get_affine())
+            res_img = nib.Nifti1Image(residuals.astype(np.float32), img.get_affine())
+            nib.save(fit_img, self.tenfit_img)
+            nib.save(res_img, self.dti_res_img)
+
+    def KurtosisModelFit(self):
+        if os.path.exists(self.masked_dwi):
+            img = nib.load(self.masked_dwi)
+            data = img.get_data()
+
+            bvals, bvecs = read_bvals_bvecs(self.bval_path, self.bvec_path)
+            gtab = gradient_table(bvals, bvecs)
+
+            values = np.array(bvals)
+            ii = np.where(walues == bvals.min())[0]
+            b0_average = np.mean(data[:,:,:,ii], axis=3)
+
+            dkimodel = dki.DiffusionKurtosisModel(gtab)
+            dkifit =  dkimodel.fit(data)
+
+            estimate_data = dkimodel.predict(gtab, S0=b0_average)
+            residuals = np.absolute(data - estimate_data)
+
+            Kfit_img = nib.Nifti1Image(dkifit.astype(np.float32), img.get_affine())
+            res_img = nib.Nifti1Image(residuals,astype(np.float32), img.get_affine())
+            nib.save(Kfit_img, self.kurtosis_img)
+            nib.save(res_img, self.dki_res_img)
+
+
+#Note:
+#What we will need to do next is set up a seperate file to run these functions from and if we want to incorporate docopt for the functions
+#Or we can run these functions within the same file
