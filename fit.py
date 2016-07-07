@@ -1,4 +1,346 @@
-#def run(rawargs):
+#!../Miniconda/bin/python
+import os, sys, pandas, math
+import numpy as np
+import nibabel as nib
+import dipy.reconst.dti as dti
+import dipy.reconst.dki as dki
+from dipy.viz import fvtk
+from dipy.segment.mask import median_otsu
+from dipy.align.reslice import reslice
+from dipy.core.gradients import gradient_table
+from dipy.io import read_bvals_bvecs
+from docopt import docopt
+#import dipy.data as dpd
+reload(dti)
+
+Version = "0.1"
+
+doc = """
+Orientation Check, Version {0}.
+
+Usage:
+    fit.py [options] --image <FILE> --bvals <FILE> --bvecs <FILE>
+
+Options:
+    -h --help                   Show this screen.
+    -v --version                Show version.
+    --image <FILE>              Input image file (path).
+    --mask <FILE>               Mask image in same coordinate space as image, optional. (path) [default: None]
+    --slice <INT>               Specify a specific slice to fit (int) [default: None].
+    --bvals <FILE>              BVALS file (path).
+    --bvecs <FILE>              BVECS file (path).
+    --out_dti <FILE>            Output the lower triangular of the dti data (path).[default: None]
+    --out_dti_residual <FILE>   Output the residual of the dti model fitting (path).[default: None]
+    --out_dki <FILE>            Output the lower triangular of the dki data (path).[default: None]
+    --out_dki_residual <FILE>   Output the residual of the dki model fitting (path).[default: None]
+    --out_dti_fa <FILE>         Output the FA from the dti model (path).[default: None]
+    --out_dti_md <FILE>         Output the MD from the dti model (path).[default: None]
+    --out_dti_rd <FILE>         Output the RD from the dti model (path).[default: None]
+    --out_dti_ad <FILE>         Output the AD from the dti model (path).[default: None]
+    --out_dki_fa <FILE>         Output the FA from the dki model (path).[default: None]
+    --out_dki_md <FILE>         Output the MD from the dki model (path).[default: None]
+    --out_dki_rd <FILE>         Output the RD from the dki model (path).[default: None]
+    --out_dki_ad <FILE>         Output the AD from the dki model (path).[default: None]
+    --fit_method <METHOD>       Specify a method for fitting (WLS, LS, NLLS, RT) [default: WLS]
+
+""".format(Version)
+
+#============================================================================
+#             Classes
+#============================================================================
+
+class Fit(object):
+
+    def __init__(self, data, mask, gradient_table, fit_method, out_dti=None, out_dti_residual=None, out_dki=None, out_dki_residual=None, out_dti_fa=None, out_dti_md=None, out_dti_rd=None, out_dti_ad=None, out_dki_fa=None, out_dki_md=None, out_dki_rd=None, out_dki_ad=None):
+        self.raw_data = data
+        self.mask = mask
+        self.data = self.raw_data
+        self.gradient_table = gradient_table
+
+        #Fitted
+        self.dti_fitted = None
+        self.dki_fitted = None
+
+
+        #Raw-Type values
+        self.out_dti = None
+        self.out_dti_path = out_dti
+        self.out_dti_residual = None
+        self.out_dti_residual_path = out_dti_residual
+        self.out_dki = None
+        self.out_dki_path = out_dki
+        self.out_dki_residual = None
+        self.out_dki_residual_path = out_dki_residual
+        self.fit_method = fit_method
+
+        #Outcome Measures
+        self.out_dti_fa = None
+        self.out_dti_fa_path = out_dti_fa
+        self.out_dti_md = None
+        self.out_dti_md_path = out_dti_md
+        self.out_dti_rd = None
+        self.out_dti_rd_path = out_dti_rd
+        self.out_dti_ad = None
+        self.out_dti_ad_path = out_dti_ad
+        self.out_dki_fa = None
+        self.out_dki_fa_path = out_dki_fa
+        self.out_dki_md = None
+        self.out_dki_md_path = out_dki_md
+        self.out_dki_rd = None
+        self.out_dki_rd_path = out_dki_rd
+        self.out_dki_ad = None
+        self.out_dki_ad_path = out_dki_ad
+
+    def save(self):
+        out_matrix = [
+        [self.out_dti_path, self.out_dti],
+        [self.out_dki_path, self.out_dki],
+        [self.out_dti_residual_path, self.out_dti_residual],
+        [self.out_dki_residual_path, self.out_dki_residual],
+        [self.out_dti_fa, self.out_dti_fa],
+        [self.out_dti_md, self.out_dti_md],
+        [self.out_dti_rd, self.out_dti_rd],
+        [self.out_dti_ad, self.out_dti_ad],
+        [self.out_dki_fa, self.out_dki_fa],
+        [self.out_dki_md, self.out_dki_md],
+        [self.out_dki_rd, self.out_dki_rd],
+        [self.out_dki_ad, self.out_dki_ad],
+        ]
+        for path, contents in out_matrix:
+            if path != None and contents != None:
+                print("Saving {0}".format(path))
+                nib.nifti1.save(contents, path)
+
+    def slice(self):
+        pass
+
+    def apply_mask(self):
+        """
+        If self.mask is not None, will mask the raw_data with the mask provided.
+        If self.mask is None, median_otsu is used to generate those files.
+        """
+        if self.mask == None:
+            print("Generating mask with median_otsu.")
+            raw_data = self.raw_data.get_data()
+            masked_data, mask = median_otsu(raw_data, 2,2)
+
+            #Update the instance
+            self.data = nib.nifti1.Nifti1Image(masked_data.astype(np.float32), self.raw_data.get_affine())
+            self.mask = nib.nifti1.Nifti1Image(mask.astype(np.int_), self.data.get_affine())
+        else:
+            print("Masking data with provided mask.")
+            raw_data = self.raw_data.get_data()
+            mask_data = self.mask.get_data()
+            masked_data = raw_data * mask_data
+
+            #Update the instance
+            self.data = nib.nifti1.Nifti1Image(masked_data.astype(np.float32), self.raw_data.get_affine())
+        self.slice()
+
+
+    def fit_dti(self):
+        """
+        Fits a dti model to the data
+        """
+        data = self.data.get_data()
+
+        #Generate an average B0 image
+        values = np.array(self.gradient_table.bvals)
+        ii = np.where(values == self.gradient_table.bvals.min())[0]
+        print("Generating average B0 image.")
+        b0_average = np.mean(data[:,:,:,ii], axis=3)
+
+        #Generate the tensor model
+        print("Generating the dti model.")
+        tenmodel = dti.TensorModel(self.gradient_table, fit_method=self.fit_method)
+        print("Fitting the data.")
+        self.dti_fitted = tenmodel.fit(data)
+
+        #Generate the lower-triangular dataset
+        print("Generating the lower-triangular data.")
+        spd_data = self.dti_fitted.lower_triangular()
+        self.out_dti = nib.nifti1.Nifti1Image(spd_data, self.data.get_affine())
+
+        #Generate the residuals
+        print("Estimating input data.")
+        estimate_data = self.dti_fitted.predict(self.gradient_table, S0=b0_average)
+        print("Calculating residuals.")
+        residuals = np.absolute(data - estimate_data)
+        self.out_dti_residual = nib.nifti1.Nifti1Image(residuals.astype(np.float32), self.data.get_affine())
+
+
+
+    def fit_dki(self):
+        """
+        Fits a dki model to the data
+        """
+        data = self.data.get_data()
+
+        #Generate an average B0 image
+        values = np.array(self.gradient_table.bvals)
+        ii = np.where(values == self.gradient_table.bvals.min())[0]
+        b0_average = np.mean(data[:,:,:,ii], axis=3)
+
+        #Generate the dk model
+        dkimodel = dki.DiffusionKurtosisModel(self.gradient_table)
+        self.dki_fitted = dkimodel.fit(data)
+
+        #Generate the lower-triangular dataset
+        spd_data = tenfit.lower_triangular()
+        self.out_dti = nib.nifti1.Nifti1Image(spd_data, self.data.get_affine())
+
+        #Generate the residuals
+        estimate_data = dkimodel.predict(self.gradient_table, S0=b0_average)
+        residuals = np.absolute(data - estimate_data)
+        self.out_dti_residual = nib.nifti1.Nifti1Image(residuals.astype(np.float32), self.data.get_affine())
+
+
+
+
+        if os.path.exists(self.masked_dwi):
+            img = nib.load(self.masked_dwi)
+            data = img.get_data()
+
+            bvals, bvecs = read_bvals_bvecs(self.bval, self.bvec)
+            gtab = gradient_table(bvals, bvecs)
+
+            values = np.array(bvals)
+            ii = np.where(values == bvals.min())[0]
+            b0_average = np.mean(data[:,:,:,ii], axis=3)
+
+            dkimodel = dki.DiffusionKurtosisModel(gtab)
+            dkifit = dkimodel.fit(data)
+
+            estimate_data = dkimodel.predict(gtab, S0=b0_average)
+            residuals = np.absolute(data - estimate_data)
+
+            Kfit_img = nib.Nifti1Image(dkifit.astype(np.float32), img.get_affine())
+            res_img = nib.Nifti1Image(residuals.astype(np.float32), img.get_affine())
+            nib.save(Kfit_img, self.kurtosis_img)
+            nib.save(res_img, self.dki_res_img)
+
+# class WholeImage(Fit):
+#
+#     def __init__(self, data, mask, gradient_table, fit_method, out_dti=None, out_dti_residual=None, out_dki=None, out_dki_residual=None, out_dti_fa=None, out_dti_md=None, out_dti_rd=None, out_dti_ad=None, out_dki_fa=None, out_dki_md=None, out_dki_rd=None, out_dki_ad=None):
+#         Fit.__init__(self, data, mask, gradient_table, fit_method, out_dti, out_dti_residual, out_dki, out_dki_residual, out_dti_fa, out_dti_md, out_dti_rd, out_dti_ad, out_dki_fa, out_dki_md, out_dki_rd, out_dki_ad)
+#
+#     def createMask(self):
+#         if os.path.exists(self.raw_data):
+#             img = nib.load(self.raw_data)
+#             data = img.get_data()
+#             masked_data, mask = median_otsu(data, 2,2)
+#
+#             #Save those files
+#             masked_img = nib.Nifti1Image(masked_data.astype(np.float32), img.get_affine())
+#             mask_img = nib.Nifit1Image(mask.astype(np.float32), img.get_affine())
+#
+#             nib.save(masked_img, self.masked_dwi)
+#             nib.save(mask_img, self.mask)
+
+
+class SliceFit(Fit):
+
+    def __init__(self, data, mask, gradient_table, fit_method, out_dti=None, out_dti_residual=None, out_dki=None, out_dki_residual=None, out_dti_fa=None, out_dti_md=None, out_dti_rd=None, out_dti_ad=None, out_dki_fa=None, out_dki_md=None, out_dki_rd=None, out_dki_ad=None):
+        Fit.__init__(self, data, mask, gradient_table, fit_method, out_dti, out_dti_residual, out_dki, out_dki_residual, out_dti_fa, out_dti_md, out_dti_rd, out_dti_ad, out_dki_fa, out_dki_md, out_dki_rd, out_dki_ad)
+        self.raw_data = slice_data
+
+    def createMask(self):
+        if os.path.exists(self.raw_data):
+            img = nib.load(self.raw_data)
+            data = img.get_data()
+            masked_data, mask = median_otsu(data, 2,2)
+
+            #Save those files
+            masked_img = nib.Nifti1Image(masked_data.astype(np.float32), img.get_affine())
+            mask_img = nib.Nifit1Image(mask.astype(np.float32), img.get_affine())
+
+            nib.save(masked_img, self.masked_dwi)
+            nib.save(mask_img, self.mask)
+
+#============================================================================
+#             Run
+#============================================================================
+
+def run(rawargs):
+    arguments = docopt(doc, argv=rawargs, version='Fit v{0}'.format(Version))
+
+    configuration = {}
+
+    #Try to load the image data. If successful, save it to configuration as "data"
+    try:
+        configuration["data"] = nib.load(arguments["--image"])
+    except:
+        print("The image you specified does not exist, or cannot be read.")
+        sys.exit(1)
+
+    #Try to load the mask data. If successful, save it to configuration as "mask"
+    if arguments["--mask"] != None and arguments["--mask"] != "None":
+        try:
+            configuration["mask"] = nib.load(arguments["--mask"])
+        except:
+            print("The mask image you specified does not exist, or cannot be read.")
+            sys.exit(1)
+    else:
+        configuration["mask"] = None
+
+    #Try to load the bvec, bvals files. If successful, save it to configuration as "gradient_table"
+    try:
+        bvals, bvecs = read_bvals_bvecs(arguments["--bvals"], arguments["--bvecs"])
+        configuration["gradient_table"] = gradient_table(bvals, bvecs)
+    except:
+        print("Could not read bvec and/or bval file")
+        sys.exit(1)
+
+    #Update configuration with more basic settings
+    lookup = {"--out_dti": "out_dti",
+              "--out_dti_residual": "out_dti_residual",
+              "--out_dki": "out_dki",
+              "--out_dki_residual": "out_dki_residual",
+              "--out_dti_fa": "out_dti_fa",
+              "--out_dti_md": "out_dti_md",
+              "--out_dti_rd": "out_dti_rd",
+              "--out_dti_ad": "out_dti_ad",
+              "--out_dki_fa": "out_dki_fa",
+              "--out_dki_md": "out_dki_md",
+              "--out_dki_rd": "out_dki_rd",
+              "--out_dki_ad": "out_dki_ad"}
+
+    for key, value in lookup.iteritems():
+        if arguments[key] == "None" or arguments[key] == None:
+            configuration[value] = None
+        else:
+            configuration[value] = arguments[key]
+
+
+    if arguments["--fit_method"].upper() in ["WLS", "LS", "NLLS", "RT"]:
+        configuration["fit_method"] = arguments["--fit_method"].upper()
+    else:
+        print("'{0}' is not a valid fit method. Choose either 'WLS', 'LS', 'NLLS', or 'RT'".format(arguments["--fit_method"].upper()))
+        sys.exit(1)
+
+    #Delete this when debugging is finished.
+    print(configuration)
+
+    #Check to see if the user specified output files derived from DTI fitting. If so, proceed with DTI fitting.
+    if arguments["--slice"] == None or arguments["--slice"] == "None":
+        fitter = Fit(**configuration)
+
+    else:
+        configuration["slice"] = int(arguments["--slice"])
+        fitter = SliceFit(**configuration)
+    print(type(fitter))
+    fitter.apply_mask()
+
+    if len([key for key in configuration.keys() if "out_dti" in key and configuration[key] != None]) != 0:
+        fitter.fit_dti()
+    if len([key for key in configuration.keys() if "out_dki" in key and configuration[key] != None]) != 0:
+        fitter.fit_dki()
+
+    fitter.save()
+
+
+
+
 #    #retrieves arguments
 #    arguments = docopt(doc, argv=rawargs, version='Orientation Check v{0}'.format(Version))
 #    #print(arguments)
@@ -47,167 +389,12 @@
 #
 #    sys.exit(0)
 #
-#if __name__ == '__main__':
-#    args = sys.argv
-#    del args[0]
-#    run(args)
-#
-#
-#    ############################################################################
-
-#!../Python/bin/python
-import matplotlib.pyplot as plt
-import os, sys, pandas, math
-import numpy as np
-import nibabel as nib
-import dipy.reconst.dti as dti
-import dipy.reconst.dki as dki
-from dipy.viz import fvtk
-from dipy.segment.mask import median_otsu
-from dipy.align.reslice import reslice
-from dipy.core.gradients import gradient_table
-from dipy.io import read_bvals_bvecs
-from docopt import docopt
-#import dipy.data as dpd
-reload(dti)
-
-Version = "0.1"
-
-doc = """
-Orientation Check, Version {0}.
-
-Usage:
-    fit.py [options] --bval=<FILE> --bvec=<FILE> --outprefix=<FILE> --fit_type=<type> --data_type=<type> --image=<FILE>
-
-Options:
-    -h --help            Show this screen.
-    -v --version         Show version.
-    --bval=<FILE>        BVAL File (path).
-    --bvec=<FILE>        BVEC File (path).
-    --outprefix=<FILE>   Output File (path).
-    --fit_type=<type>    Specify a type (WLS, LS, NLLS, RT) [default: WLS].
-    --data_type=<type>   Specify type of data (Whole_Image, Slice) [default: Whole_Image].
-    --image=<FILE>       Image File (path).
-""".format(Version)
 
 #============================================================================
-#             General Utility
+#             Main
 #============================================================================
 
-class Fit(object):
-
-    def __init__(self, bvals, bvecs, outprefix, fit_method='WLS', data_type='Whole_Image', dwi_data):
-        self.bval = bvals
-        self.bvec = bvecs
-        self.output_root_path = outprefix
-        self.fit_method = fit_method
-        self.raw_data = dwi_data
-
-        #set up directories for storage of information and data
-        self.output_data = self.output_root_path + "/data" #directory where all files are stored
-        self.raw_data = self.output_data + "/dwi.nii.gz"
-        self.mask = self.output_data + "/mask.nii.gz"
-        self.masked_dwi = self.output_data + "/dwi.mask.nii.gz"
-        self.bval = self.output_data + "/bvals"
-        self.bvec = self.output_data + "/bvecs"
-        self.tenfit_img = self.output_data + "/dti.tensor.nii.gz"
-        self.dti_res_img = self.output_data + "/dti.res.nii.gz"
-        self.kurtosis_img = self.output_data + "/dki.model.nii.gz"
-        self.dki_res_img = self.output_data + "/dki.res.nii.gz"
-
-    def setupDirectories(self):
-
-        if not os.path.exists(self.output_root_path):
-            os.mkdir(self.output_root_path)
-
-        if not os.path.exists(self.output_preprocess):
-            os.mkdir(self.output_preprocess)
-
-
-    def TensorFit(self):
-        if os.path.exists(self.masked_dwi):
-            img = nib.load(self.masked_dwi)
-            data = img.get_data()
-
-            bvals, bvecs = read_bvals_bvecs(self.bval, self.bvec)
-            gtab = gradient_table(bvals, bvecs)
-
-            values = np.array(bvals)
-            ii = np.where(values == bvals.min())[0]
-            b0_average = np.mean(data[:,:,:,ii], axis=3)
-
-            tenmodel = dti.TensorModel(gtab, fit_method="fit_method")
-            tenfit = tenmodel.fit(data)
-
-            spd_data = tenfit.lower_triangular()
-            nib.save(nib.Nifti1Image(spd_data, image.get_affine()), spd_file_path)
-
-            estimate_data = tenmodel.predict(gtab, S0=b0_average)
-            residuals = np.absolute(data - estimate_data)
-
-            fit_img = nib.Nifti1Image(tenfit.astype(np.float32), img.get_affine())
-            res_img = nib.Nifti1Image(residuals.astype(np.float32), img.get_affine())
-            nib.save(fit_img, self.tenfit_img)
-            nib.save(res_img, self.dti_res_img)
-
-    def KurtosisModelFit(self):
-        if os.path.exists(self.masked_dwi):
-            img = nib.load(self.masked_dwi)
-            data = img.get_data()
-
-            bvals, bvecs = read_bvals_bvecs(self.bval, self.bvec)
-            gtab = gradient_table(bvals, bvecs)
-
-            values = np.array(bvals)
-            ii = np.where(values == bvals.min())[0]
-            b0_average = np.mean(data[:,:,:,ii], axis=3)
-
-            dkimodel = dki.DiffusionKurtosisModel(gtab)
-            dkifit = dkimodel.fit(data)
-
-            estimate_data = dkimodel.predict(gtab, S0=b0_average)
-            residuals = np.absolute(data - estimate_data)
-
-            Kfit_img = nib.Nifti1Image(dkifit.astype(np.float32), img.get_affine())
-            res_img = nib.Nifti1Image(residuals.astype(np.float32), img.get_affine())
-            nib.save(Kfit_img, self.kurtosis_img)
-            nib.save(res_img, self.dki_res_img)
-
-class WholeImage(Fit):
-
-    def __init__(self, rawDWI):
-        Fit.__init__(self, bvals, bvecs, outprefix, fit_method='WLS', "Whole_Image")
-        self.raw_data = rawDwi
-
-    def createMask(self):
-        if os.path.exists(self.raw_data):
-            img = nib.load(self.raw_data)
-            data = img.get_data()
-            masked_data, mask = median_otsu(data, 2,2)
-
-            #Save those files
-            masked_img = nib.Nifti1Image(masked_data.astype(np.float32), img.get_affine())
-            mask_img = nib.Nifit1Image(mask.astype(np.float32), img.get_affine())
-
-            nib.save(masked_img, self.masked_dwi)
-            nib.save(mask_img, self.mask)
-
-
-class SliceImage(Fit):
-
-    def __init__(self, slice_data):
-        Fit.__init__(self, bvals, bvecs, outprefix, fit_method='WLS', "Slice")
-        self.raw_data = slice_data
-
-    def createMask(self):
-        if os.path.exists(self.raw_data):
-            img = nib.load(self.raw_data)
-            data = img.get_data()
-            masked_data, mask = median_otsu(data, 2,2)
-
-            #Save those files
-            masked_img = nib.Nifti1Image(masked_data.astype(np.float32), img.get_affine())
-            mask_img = nib.Nifit1Image(mask.astype(np.float32), img.get_affine())
-
-            nib.save(masked_img, self.masked_dwi)
-            nib.save(mask_img, self.mask)
+if __name__ == '__main__':
+   args = sys.argv
+   del args[0]
+   run(args)
