@@ -231,9 +231,6 @@ def run(rawargs):
         print("'{0}' is not a valid fit method. Choose either 'WLS', 'OLS'".format(arguments["--fit_method"].upper()))
         sys.exit(1)
 
-    #Delete this when debugging is finished.
-    print(configuration)
-
     fitter = Fitter(**configuration)
     fitter.apply_mask()
     fitter.fit()
