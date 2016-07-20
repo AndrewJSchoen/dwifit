@@ -24,17 +24,19 @@ Options:
     --mask <FILE>               Mask image in same coordinate space as image, optional. (path) [default: None]
     --bvals <FILE>              BVALS file (path).
     --bvecs <FILE>              BVECS file (path).
-    --out_dti <FILE>            Output the 6 diffusion tensor parameters of the dti data (path).[default: None]
-    --out_dki <FILE>            Output the 15 kurtosis tensor parameters of the dki data (path).[default: None]
-    --out_residual <FILE>       Output the residual of the model fitting (path).[default: None]
-    --out_fa <FILE>             Output the FA from the dti model (path).[default: None]
-    --out_md <FILE>             Output the MD from the dti model (path).[default: None]
-    --out_rd <FILE>             Output the RD from the dti model (path).[default: None]
-    --out_ad <FILE>             Output the AD from the dti model (path).[default: None]
-    --out_mk <FILE>             Output the MK from the dki model (path).[default: None]
-    --out_rk <FILE>             Output the RK from the dki model (path).[default: None]
-    --out_ak <FILE>             Output the AK from the dki model (path).[default: None]
-    --fit_method <METHOD>       Specify a method for fitting (WLS or OLS) [default: WLS]
+    --out_dti <FILE>            Output the 6 diffusion tensor parameters of the dti data (path). [default: None]
+    --out_dki <FILE>            Output the 15 kurtosis tensor parameters of the dki data (path). [default: None]
+    --out_residual <FILE>       Output the residual of the model fitting (path). [default: None]
+    --out_noise <FILE>          Output the standard deviation across directions of the residual (path). [default: None]
+    --out_snr <FILE>            Output the average B0 over noise file (path). [default: None]
+    --out_fa <FILE>             Output the FA from the dti model (path). [default: None]
+    --out_md <FILE>             Output the MD from the dti model (path). [default: None]
+    --out_rd <FILE>             Output the RD from the dti model (path). [default: None]
+    --out_ad <FILE>             Output the AD from the dti model (path). [default: None]
+    --out_mk <FILE>             Output the MK from the dki model (path). [default: None]
+    --out_rk <FILE>             Output the RK from the dki model (path). [default: None]
+    --out_ak <FILE>             Output the AK from the dki model (path). [default: None]
+    --fit_method <METHOD>       Specify a method for fitting (WLS or OLS). [default: WLS]
 
 """.format(Version)
 
@@ -43,7 +45,7 @@ Options:
 #============================================================================
 
 class Fitter(object):
-    def __init__(self, data, mask, gradient_table, fit_method, out_dti=None, out_dki=None, out_residual=None, out_fa=None, out_md=None, out_rd=None, out_ad=None, out_mk=None, out_rk=None, out_ak=None):
+    def __init__(self, data, mask, gradient_table, fit_method, out_dti=None, out_dki=None, out_residual=None, out_noise=None, out_snr=None, out_fa=None, out_md=None, out_rd=None, out_ad=None, out_mk=None, out_rk=None, out_ak=None):
         self.raw_data = data
         self.mask = mask
         self.data = self.raw_data
@@ -66,6 +68,10 @@ class Fitter(object):
         self.out_dki_path = out_dki
         self.out_residual = None
         self.out_residual_path = out_residual
+        self.out_noise = None
+        self.out_noise_path = out_noise
+        self.out_snr = None
+        self.out_snr_path = out_snr
 
         self.fit_method = fit_method
 
@@ -90,6 +96,8 @@ class Fitter(object):
         [self.out_dti_path, self.out_dti],
         [self.out_dki_path, self.out_dki],
         [self.out_residual_path, self.out_residual],
+        [self.out_noise_path, self.out_noise],
+        [self.out_snr_path, self.out_snr],
         [self.out_fa_path, self.out_fa],
         [self.out_md_path, self.out_md],
         [self.out_rd_path, self.out_rd],
@@ -139,6 +147,10 @@ class Fitter(object):
     def fit(self):
         """
         Fits a dki model to the data
+            Standard DTI measures (FA,MD,RD,AD) are calculated from the DKI model, accounting for additional variance.
+            DKI measures of MK,RK,AK are computed from the DKI model.
+            Residual image has the same dimensions as the original input image. Calculated as |Avg(B0_volumes)-predicted_image|
+            Noise is equal to the stdev across volumes of the residual image, and SNR is Avg(B0_volumes)/Noise, removing NaNs.
         """
         data = self.data.get_data()
 
@@ -154,12 +166,17 @@ class Fitter(object):
         self.out_dki = nib.nifti1.Nifti1Image(self.dki_fitted.kt, self.data.get_affine())
 
         #Generate the residuals
-        if self.out_residual_path != None:
+        if self.out_residual_path != None or self.out_noise_path != None or self.out_snr_path != None:
             print("Estimating input data.")
             estimate_data = self.dki_fitted.predict(self.gradient_table, S0=self.b0_average)
             print("Calculating residuals.")
             residuals = np.absolute(data - estimate_data)
+            noise = np.std(residuals, axis=3)
+            snr = np.nan_to_num(self.b0_average / noise)
             self.out_residual = nib.nifti1.Nifti1Image(residuals.astype(np.float32), self.data.get_affine())
+            self.out_noise = nib.nifti1.Nifti1Image(noise.astype(np.float32), self.data.get_affine())
+            self.out_snr = nib.nifti1.Nifti1Image(snr.astype(np.float32), self.data.get_affine())
+
 
     def extract_scalars(self):
         if self.out_dti != None:
@@ -210,6 +227,8 @@ def run(rawargs):
     lookup = {"--out_dti": "out_dti",
               "--out_dki": "out_dki",
               "--out_residual": "out_residual",
+              "--out_noise": "out_noise",
+              "--out_snr": "out_snr",
               "--out_fa": "out_fa",
               "--out_md": "out_md",
               "--out_rd": "out_rd",
